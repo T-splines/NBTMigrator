@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>Create 蓝图批量修复工具</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="../ui/styles.css">
+</head>
+<body>
+<div class="container">
+
+    <h1>📦 Create 蓝图批量修复工具（1.18~1.20 -> 1.21+）</h1>
+
+    <div class="grid">
+
+        <!-- 左侧：上传区域 -->
+        <div class="panel">
+            <h2>上传蓝图文件</h2>
+            <p class="sub">支持多个 .nbt 文件（旧版 1.20 或更早）</p>
+
+            <div class="file-box" id="fileBox" onclick="document.getElementById('fileInput').click()">
+                <div class="file-icon">📤</div>
+                <p>点击上传文件</p>
+                <input type="file" id="fileInput" accept=".nbt" multiple style="display: none;">
+                <div class="file-name" id="fileList">未选择文件</div>
+            </div>
+
+            <button class="process-btn" id="processBtn" disabled>
+                🔄 开始批量修复
+            </button>
+
+            <div class="progress-bar" id="progressBar">
+                <div class="progress" id="progress"></div>
+            </div>
+
+            <div class="error" id="errorBox"></div>
+        </div>
+
+        <!-- 右侧：结果区域 -->
+        <div class="panel">
+            <h2>修复结果（1.21+可用）</h2>
+            <p class="sub">修复完成后将在此显示</p>
+
+            <div class="result-section" id="resultSection">
+                <div class="filter-info" id="resultInfo"></div>
+
+                <button class="download-btn" id="downloadAllBtn">
+                    📦 下载全部修复后的蓝图（ZIP）
+                </button>
+            </div>
+        </div>
+
+    </div>
+
+    <div class="footer">
+        <p>
+            ✨ 完全本地处理 | 批量修复 | 
+            <a href="https://github.com/T-splines/NBTMigrator" target="_blank">Create蓝图1.21修复器-GitHub</a> |
+            <a href="https://space.bilibili.com/24787473" target="_blank">机械动力magic魔法之源</a>
+        </p>
+    </div>
+
+
+</div>
+
+<script src="../utils/logger.js"></script>
+<script src="../utils/gzip.js"></script>
+<script src="../core/nbt-reader.js"></script>
+<script src="../core/nbt-writer.js"></script>
+<script src="../core/nbt-searcher.js"></script>
+<script src="../core/nbt-patcher.js"></script>
+<script src="../migrators/filter-migrator.js"></script>
+<script src="../migrators/migrator-registry.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="../ui/app.js"></script>
+</body>
+</html>
