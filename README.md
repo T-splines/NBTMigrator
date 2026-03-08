@@ -1,6 +1,6 @@
 ```ascii
 ╔══════════════════════════════════╗
-║         NBTMigrator v1.0         ║
+║         NBTMigrator v1.1         ║
 ║       Minecraft 蓝图迁移工具      ║
 ╚══════════════════════════════════╝
 ```
@@ -9,7 +9,8 @@
 
 [English](README_EN.md) | [中文](README.md)
 
-> 用于Minecraft机械动力(Create)模组的NBT蓝图版本迁移工具
+> 用于Minecraft机械动力(Create)模组的NBT蓝图版本迁移工具v1.0
+> v1.1版本实现了完整的NBT解析重建，并新增针对嵌套过滤器、剪贴板的支持
 
 ## ✨ 特性
 

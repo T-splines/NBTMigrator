@@ -1,21 +1,29 @@
 // utils/logger.js
-// 简单日志封装，方便以后加开关
+// 日志工具
 
 const Logger = {
-    enabled: true,
-
-    info(...args) {
-        if (!this.enabled) return;
-        console.log(...args);
+    logs: [],
+    
+    info(message) {
+        console.log(`[INFO] ${message}`);
+        this.logs.push({ level: 'info', message, time: new Date() });
     },
-
-    warn(...args) {
-        if (!this.enabled) return;
-        console.warn(...args);
+    
+    warn(message) {
+        console.warn(`[WARN] ${message}`);
+        this.logs.push({ level: 'warn', message, time: new Date() });
     },
-
-    error(...args) {
-        if (!this.enabled) return;
-        console.error(...args);
+    
+    error(message) {
+        console.error(`[ERROR] ${message}`);
+        this.logs.push({ level: 'error', message, time: new Date() });
+    },
+    
+    getLogs() {
+        return this.logs;
+    },
+    
+    clear() {
+        this.logs = [];
     }
 };

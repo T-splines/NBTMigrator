@@ -1,4 +1,5 @@
-// ui/app.js — 批量修复版
+// ui/app.js - NBTrans v1.1
+// 完整NBT蓝图转换器 - 支持剪贴板和嵌套过滤器
 
 let files = [];
 let processing = false;
@@ -12,7 +13,6 @@ document.addEventListener('DOMContentLoaded', () => {
     processBtn.addEventListener('click', processFiles);
     downloadAllBtn.addEventListener('click', downloadAll);
 
-    // 拖拽上传
     const box = document.getElementById('fileBox');
     box.addEventListener('dragover', e => {
         e.preventDefault();
@@ -80,7 +80,7 @@ async function processFiles() {
     errorBox.textContent = '';
 
     processBtn.disabled = true;
-    processBtn.textContent = '🔄 正在修复...';
+    processBtn.textContent = '🔄 正在转换...';
 
     const results = [];
     const resultInfo = document.getElementById('resultInfo');
@@ -89,14 +89,15 @@ async function processFiles() {
     try {
         let index = 0;
         for (const file of files) {
-            updateProgress((index / files.length) * 100, `修复 ${file.name}...`);
+            updateProgress((index / files.length) * 100, `转换 ${file.name}...`);
 
-            const fixed = await fixSingleFile(file);
-            results.push({ name: file.name, data: fixed });
+            const result = await convertFile(file);
+            results.push(result);
 
             resultInfo.innerHTML += `
                 <div style="margin-bottom: 10px; padding: 8px; background: #e7f3ff; border-radius: 3px;">
-                    <strong>${file.name}</strong> 修复完成
+                    <strong>${file.name}</strong><br>
+                    <small>方块: ${result.stats.totalBlocks} | 剪贴板: ${result.stats.clipboards} | 过滤器: ${result.stats.filters} | 嵌套: ${result.stats.nestedFilters}</small>
                 </div>
             `;
 
@@ -105,32 +106,50 @@ async function processFiles() {
 
         window.fixedFiles = results;
 
-        updateProgress(100, '全部修复完成！');
+        updateProgress(100, '全部转换完成！');
         document.getElementById('resultSection').classList.add('show');
 
     } catch (e) {
         showError(e.message || '未知错误');
+        console.error(e);
     } finally {
         processing = false;
         processBtn.disabled = false;
-        processBtn.textContent = '🔄 开始批量修复';
+        processBtn.textContent = '🔄 开始批量转换';
         setTimeout(resetProgress, 500);
     }
 }
 
-async function fixSingleFile(file) {
+async function convertFile(file) {
     const buf = await file.arrayBuffer();
-    const decompressed = await GZIP.decompress(buf);
-
-    const reader = new NBTReader(decompressed);
-    const blocks = reader.parseBlocksOnly();
-
-    const { patched } = MigratorRegistry.runAll(blocks, decompressed);
-
-    if (GZIP.isGZIP(new Uint8Array(buf))) {
-        return await GZIP.compress(patched);
+    const isGzipped = GZIP.isGZIP(new Uint8Array(buf));
+    
+    let data;
+    if (isGzipped) {
+        data = await GZIP.decompress(new Uint8Array(buf));
+    } else {
+        data = new Uint8Array(buf);
     }
-    return patched;
+
+    const nbtData = NBTParser.parse(data);
+
+    const migratedData = fullMigrator.migrate(nbtData);
+    const stats = fullMigrator.summarize();
+
+    const outputData = NBTSerializer.serialize(migratedData.name, migratedData.root);
+
+    let output;
+    if (isGzipped) {
+        output = await GZIP.compress(outputData);
+    } else {
+        output = outputData;
+    }
+
+    return {
+        name: file.name,
+        data: output,
+        stats
+    };
 }
 
 async function downloadAll() {
@@ -138,7 +157,7 @@ async function downloadAll() {
 
     const zip = new JSZip();
     for (const f of window.fixedFiles) {
-        zip.file(f.name.replace(/\.nbt$/, '_fixed.nbt'), f.data);
+        zip.file(f.name.replace(/\.nbt$/, '_v1.1.nbt'), f.data);
     }
 
     const blob = await zip.generateAsync({ type: 'blob' });
@@ -146,7 +165,7 @@ async function downloadAll() {
 
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'fixed_blueprints.zip';
+    a.download = 'converted_blueprints_v1.1.zip';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
