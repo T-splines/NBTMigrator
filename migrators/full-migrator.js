@@ -1,5 +1,5 @@
 // migrators/full-migrator.js
-// 完整迁移器 - 支持剪贴板和嵌套过滤器
+// 完整迁移器 - 支持双向转换：1.20.1 <-> 1.21.1
 
 class FullMigrator {
     constructor() {
@@ -15,13 +15,47 @@ class FullMigrator {
             filters: 0,
             nestedFilters: 0
         };
+        
+        this.sourceVersion = null;
+        this.targetVersion = null;
     }
 
-    migrate(nbtData) {
+    detectVersion(nbtData) {
+        const root = nbtData.root;
+        if (!root || root._type !== 'compound') return 'unknown';
+        
+        if (root.value.DataVersion) {
+            const version = root.value.DataVersion.value;
+            if (version >= 3955) return '1.21.1';
+            if (version >= 3465) return '1.20.1';
+        }
+        return 'unknown';
+    }
+
+    migrate(nbtData, targetVersion = null) {
         this.stats = { blocks: 0, clipboards: 0, filters: 0, nestedFilters: 0 };
         
         const root = nbtData.root;
         if (!root || root._type !== 'compound') return nbtData;
+
+        this.sourceVersion = this.detectVersion(nbtData);
+        
+        if (targetVersion === null) {
+            if (this.sourceVersion === '1.20.1') {
+                targetVersion = '1.21.1';
+            } else if (this.sourceVersion === '1.21.1') {
+                targetVersion = '1.20.1';
+            } else {
+                Logger.warn(`无法确定转换方向，源版本: ${this.sourceVersion}`);
+                return nbtData;
+            }
+        }
+        this.targetVersion = targetVersion;
+
+        if (this.sourceVersion === targetVersion) {
+            Logger.info(`文件已经是 ${targetVersion} 版本，无需转换`);
+            return nbtData;
+        }
 
         const blocksField = root.value.blocks;
         if (!blocksField || blocksField._type !== 'list') return nbtData;
@@ -29,28 +63,41 @@ class FullMigrator {
         const blocks = blocksField.value;
         this.stats.blocks = blocks.length;
 
+        if (this.sourceVersion === '1.20.1' && targetVersion === '1.21.1') {
+            this.migrateTo121(root, blocks);
+        } else if (this.sourceVersion === '1.21.1' && targetVersion === '1.20.1') {
+            this.migrateTo120(root, blocks);
+        }
+
+        Logger.info(`FullMigrator: ${this.sourceVersion} → ${targetVersion} | 方块=${this.stats.blocks}, 剪贴板=${this.stats.clipboards}, 过滤器=${this.stats.filters}, 嵌套=${this.stats.nestedFilters}`);
+
+        return nbtData;
+    }
+
+    migrateTo121(root, blocks) {
         for (const block of blocks) {
             if (block._type !== 'compound') continue;
             const nbtField = block.value.nbt;
             if (!nbtField || nbtField._type !== 'compound') continue;
 
-            this.migrateBlockNbt(nbtField.value);
+            this.migrateClipboardTo121(nbtField.value);
+            this.migrateFilterTo121(nbtField.value);
         }
 
-        if (root.value.DataVersion) {
-            root.value.DataVersion = { _type: 'int', value: 3955 };
-        } else {
-            root.value.DataVersion = { _type: 'int', value: 3955 };
-        }
-
-        Logger.info(`FullMigrator: 迁移完成 - 方块=${this.stats.blocks}, 剪贴板=${this.stats.clipboards}, 过滤器=${this.stats.filters}, 嵌套过滤器=${this.stats.nestedFilters}`);
-
-        return nbtData;
+        root.value.DataVersion = { _type: 'int', value: 3955 };
     }
 
-    migrateBlockNbt(nbt) {
-        this.migrateClipboard(nbt);
-        this.migrateFilter(nbt);
+    migrateTo120(root, blocks) {
+        for (const block of blocks) {
+            if (block._type !== 'compound') continue;
+            const nbtField = block.value.nbt;
+            if (!nbtField || nbtField._type !== 'compound') continue;
+
+            this.migrateClipboardTo120(nbtField.value);
+            this.migrateFilterTo120(nbtField.value);
+        }
+
+        root.value.DataVersion = { _type: 'int', value: 3465 };
     }
 
     parseJsonText(jsonStr) {
@@ -63,7 +110,11 @@ class FullMigrator {
         }
     }
 
-    migrateClipboard(nbt) {
+    textToJson(text) {
+        return JSON.stringify({ text: text });
+    }
+
+    migrateClipboardTo121(nbt) {
         if (!nbt.Item || nbt.Item._type !== 'compound') return false;
 
         const item = nbt.Item.value;
@@ -136,7 +187,81 @@ class FullMigrator {
         return true;
     }
 
-    migrateFilter(nbt) {
+    migrateClipboardTo120(nbt) {
+        if (!nbt.components || nbt.components._type !== 'compound') return false;
+
+        const components = nbt.components.value;
+        if (!components['create:clipboard_content']) return false;
+
+        const clipboard = components['create:clipboard_content'];
+        if (clipboard._type !== 'compound') return false;
+
+        const clipboardData = clipboard.value;
+        if (!clipboardData.pages || clipboardData.pages._type !== 'list') return false;
+
+        const pages = clipboardData.pages.value;
+
+        const item = {
+            _type: 'compound',
+            value: {
+                id: { _type: 'string', value: 'create:clipboard' },
+                Count: { _type: 'byte', value: 1 }
+            }
+        };
+
+        const newPages = [];
+
+        for (const page of pages) {
+            if (page._type !== 'list') continue;
+
+            const newPage = { _type: 'compound', value: {} };
+            const entries = [];
+
+            for (const entry of page.value) {
+                if (entry._type !== 'compound') continue;
+
+                const newEntry = { _type: 'compound', value: {} };
+
+                if (entry.value.checked) {
+                    newEntry.value.Checked = { _type: 'byte', value: entry.value.checked.value };
+                } else {
+                    newEntry.value.Checked = { _type: 'byte', value: 0 };
+                }
+
+                if (entry.value.text) {
+                    const text = entry.value.text.value;
+                    newEntry.value.Text = { _type: 'string', value: this.textToJson(text) };
+                } else {
+                    newEntry.value.Text = { _type: 'string', value: '{"text":""}' };
+                }
+
+                entries.push(newEntry);
+            }
+
+            newPage.value.Entries = { _type: 'list', elementType: 10, value: entries };
+            newPages.push(newPage);
+        }
+
+        item.value.tag = {
+            _type: 'compound',
+            value: {
+                Pages: { _type: 'list', elementType: 10, value: newPages }
+            }
+        };
+
+        nbt.Item = item;
+
+        delete nbt.components.value['create:clipboard_content'];
+        const remainingKeys = Object.keys(nbt.components.value);
+        if (remainingKeys.length === 0) {
+            delete nbt.components;
+        }
+
+        this.stats.clipboards++;
+        return true;
+    }
+
+    migrateFilterTo121(nbt) {
         let migrated = false;
 
         for (const fieldName of ['Filter', 'Filtering']) {
@@ -145,7 +270,7 @@ class FullMigrator {
             const filterData = nbt[fieldName].value;
             if (!filterData.id || !this.COMPLEX_FILTER_IDS.has(filterData.id.value)) continue;
 
-            const newFilter = this.buildFilter(nbt[fieldName]);
+            const newFilter = this.buildFilterTo121(nbt[fieldName]);
             if (newFilter) {
                 nbt[fieldName] = newFilter;
                 migrated = true;
@@ -156,7 +281,27 @@ class FullMigrator {
         return migrated;
     }
 
-    buildFilter(filterField) {
+    migrateFilterTo120(nbt) {
+        let migrated = false;
+
+        for (const fieldName of ['Filter', 'Filtering']) {
+            if (!nbt[fieldName] || nbt[fieldName]._type !== 'compound') continue;
+
+            const filterData = nbt[fieldName].value;
+            if (!filterData.id || !this.COMPLEX_FILTER_IDS.has(filterData.id.value)) continue;
+
+            const newFilter = this.buildFilterTo120(nbt[fieldName]);
+            if (newFilter) {
+                nbt[fieldName] = newFilter;
+                migrated = true;
+                this.stats.filters++;
+            }
+        }
+
+        return migrated;
+    }
+
+    buildFilterTo121(filterField) {
         const filterData = filterField.value;
         const filterId = filterData.id.value;
 
@@ -189,7 +334,7 @@ class FullMigrator {
             if (tag.Items && tag.Items._type === 'compound') {
                 const itemsContainer = tag.Items.value;
                 if (itemsContainer.Items && itemsContainer.Items._type === 'list') {
-                    const filterItems = this.buildFilterItems(itemsContainer.Items.value);
+                    const filterItems = this.buildFilterItemsTo121(itemsContainer.Items.value);
                     components['create:filter_items'] = {
                         _type: 'list',
                         elementType: 10,
@@ -197,13 +342,70 @@ class FullMigrator {
                     };
                 }
             }
+        } else {
+            components['create:filter_items_respect_nbt'] = { _type: 'byte', value: 0 };
+            components['create:filter_items_blacklist'] = { _type: 'byte', value: 0 };
         }
 
         newFilter.value.components = { _type: 'compound', value: components };
         return newFilter;
     }
 
-    buildFilterItems(items) {
+    buildFilterTo120(filterField) {
+        const filterData = filterField.value;
+        const filterId = filterData.id.value;
+
+        const newFilter = {
+            _type: 'compound',
+            value: {
+                id: { _type: 'string', value: filterId },
+                Count: { _type: 'byte', value: 1 }
+            }
+        };
+
+        if (filterData.components && filterData.components._type === 'compound') {
+            const components = filterData.components.value;
+            const tag = { _type: 'compound', value: {} };
+
+            if (components['create:filter_items_respect_nbt']) {
+                tag.value.RespectNBT = {
+                    _type: 'byte',
+                    value: components['create:filter_items_respect_nbt'].value
+                };
+            } else {
+                tag.value.RespectNBT = { _type: 'byte', value: 0 };
+            }
+
+            if (components['create:filter_items_blacklist']) {
+                tag.value.Blacklist = {
+                    _type: 'byte',
+                    value: components['create:filter_items_blacklist'].value
+                };
+            } else {
+                tag.value.Blacklist = { _type: 'byte', value: 0 };
+            }
+
+            if (components['create:filter_items'] && components['create:filter_items']._type === 'list') {
+                const filterItems = components['create:filter_items'].value;
+                const itemsContainer = this.buildFilterItemsTo120(filterItems);
+                tag.value.Items = itemsContainer;
+            }
+
+            newFilter.value.tag = tag;
+        } else {
+            newFilter.value.tag = {
+                _type: 'compound',
+                value: {
+                    RespectNBT: { _type: 'byte', value: 0 },
+                    Blacklist: { _type: 'byte', value: 0 }
+                }
+            };
+        }
+
+        return newFilter;
+    }
+
+    buildFilterItemsTo121(items) {
         const filterItems = [];
 
         for (const item of items) {
@@ -214,7 +416,7 @@ class FullMigrator {
                 _type: 'compound',
                 value: {
                     slot: { _type: 'int', value: itemData.Slot ? itemData.Slot.value : 0 },
-                    item: this.buildItem(item)
+                    item: this.buildItemTo121(item)
                 }
             };
 
@@ -224,7 +426,39 @@ class FullMigrator {
         return filterItems;
     }
 
-    buildItem(itemField) {
+    buildFilterItemsTo120(filterItems) {
+        const items = [];
+
+        for (const filterEntry of filterItems) {
+            if (filterEntry._type !== 'compound') continue;
+
+            const entryData = filterEntry.value;
+            const item = {
+                _type: 'compound',
+                value: {
+                    Slot: { _type: 'int', value: entryData.slot ? entryData.slot.value : 0 }
+                }
+            };
+
+            if (entryData.item && entryData.item._type === 'compound') {
+                const itemResult = this.buildItemTo120(entryData.item);
+                for (const [k, v] of Object.entries(itemResult.value)) {
+                    item.value[k] = v;
+                }
+            }
+
+            items.push(item);
+        }
+
+        return {
+            _type: 'compound',
+            value: {
+                Items: { _type: 'list', elementType: 10, value: items }
+            }
+        };
+    }
+
+    buildItemTo121(itemField) {
         const itemData = itemField.value;
 
         const result = {
@@ -255,7 +489,7 @@ class FullMigrator {
                 if (tag.Items && tag.Items._type === 'compound') {
                     const itemsContainer = tag.Items.value;
                     if (itemsContainer.Items && itemsContainer.Items._type === 'list') {
-                        const nestedItems = this.buildFilterItems(itemsContainer.Items.value);
+                        const nestedItems = this.buildFilterItemsTo121(itemsContainer.Items.value);
                         components['create:filter_items'] = {
                             _type: 'list',
                             elementType: 10,
@@ -272,12 +506,67 @@ class FullMigrator {
         return result;
     }
 
+    buildItemTo120(itemField) {
+        const itemData = itemField.value;
+
+        const result = {
+            _type: 'compound',
+            value: {
+                id: { _type: 'string', value: itemData.id ? itemData.id.value : 'minecraft:air' },
+                Count: { _type: 'byte', value: itemData.count ? itemData.count.value : 1 }
+            }
+        };
+
+        if (itemData.components && itemData.components._type === 'compound') {
+            const components = itemData.components.value;
+
+            const hasFilterData = components['create:filter_items'] ||
+                                  components['create:filter_items_respect_nbt'] ||
+                                  components['create:filter_items_blacklist'];
+
+            if (hasFilterData) {
+                const tag = { _type: 'compound', value: {} };
+
+                if (components['create:filter_items_respect_nbt']) {
+                    tag.value.RespectNBT = {
+                        _type: 'byte',
+                        value: components['create:filter_items_respect_nbt'].value
+                    };
+                } else {
+                    tag.value.RespectNBT = { _type: 'byte', value: 0 };
+                }
+
+                if (components['create:filter_items_blacklist']) {
+                    tag.value.Blacklist = {
+                        _type: 'byte',
+                        value: components['create:filter_items_blacklist'].value
+                    };
+                } else {
+                    tag.value.Blacklist = { _type: 'byte', value: 0 };
+                }
+
+                if (components['create:filter_items'] && components['create:filter_items']._type === 'list') {
+                    const filterItems = components['create:filter_items'].value;
+                    const itemsContainer = this.buildFilterItemsTo120(filterItems);
+                    tag.value.Items = itemsContainer;
+                    this.stats.nestedFilters++;
+                }
+
+                result.value.tag = tag;
+            }
+        }
+
+        return result;
+    }
+
     summarize() {
         return {
             totalBlocks: this.stats.blocks,
             clipboards: this.stats.clipboards,
             filters: this.stats.filters,
-            nestedFilters: this.stats.nestedFilters
+            nestedFilters: this.stats.nestedFilters,
+            sourceVersion: this.sourceVersion,
+            targetVersion: this.targetVersion
         };
     }
 }

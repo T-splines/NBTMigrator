@@ -1,5 +1,5 @@
-// ui/app.js - NBTrans v1.1
-// 完整NBT蓝图转换器 - 支持剪贴板和嵌套过滤器
+// ui/app.js - NBTrans v1.2
+// 完整NBT蓝图双向转换器 - 支持剪贴板和嵌套过滤器
 
 let files = [];
 let processing = false;
@@ -47,6 +47,16 @@ function handleFileSelect(event) {
     processBtn.disabled = false;
 }
 
+function getConvertMode() {
+    const radios = document.getElementsByName('convertMode');
+    for (const radio of radios) {
+        if (radio.checked) {
+            return radio.value;
+        }
+    }
+    return 'auto';
+}
+
 function updateProgress(percent, message) {
     const progress = document.getElementById('progress');
     const progressBar = document.getElementById('progressBar');
@@ -86,18 +96,30 @@ async function processFiles() {
     const resultInfo = document.getElementById('resultInfo');
     resultInfo.innerHTML = '';
 
+    const convertMode = getConvertMode();
+
     try {
         let index = 0;
         for (const file of files) {
             updateProgress((index / files.length) * 100, `转换 ${file.name}...`);
 
-            const result = await convertFile(file);
+            const result = await convertFile(file, convertMode);
             results.push(result);
 
+            const versionInfo = result.stats.sourceVersion && result.stats.targetVersion 
+                ? `${result.stats.sourceVersion} → ${result.stats.targetVersion}` 
+                : '无需转换';
+
             resultInfo.innerHTML += `
-                <div style="margin-bottom: 10px; padding: 8px; background: #e7f3ff; border-radius: 3px;">
-                    <strong>${file.name}</strong><br>
-                    <small>方块: ${result.stats.totalBlocks} | 剪贴板: ${result.stats.clipboards} | 过滤器: ${result.stats.filters} | 嵌套: ${result.stats.nestedFilters}</small>
+                <div class="result-item">
+                    <div class="filename">${file.name}</div>
+                    <div class="version-info">${versionInfo}</div>
+                    <div class="details">
+                        方块: ${result.stats.totalBlocks} | 
+                        剪贴板: ${result.stats.clipboards} | 
+                        过滤器: ${result.stats.filters} | 
+                        嵌套: ${result.stats.nestedFilters}
+                    </div>
                 </div>
             `;
 
@@ -120,7 +142,7 @@ async function processFiles() {
     }
 }
 
-async function convertFile(file) {
+async function convertFile(file, convertMode) {
     const buf = await file.arrayBuffer();
     const isGzipped = GZIP.isGZIP(new Uint8Array(buf));
     
@@ -133,7 +155,14 @@ async function convertFile(file) {
 
     const nbtData = NBTParser.parse(data);
 
-    const migratedData = fullMigrator.migrate(nbtData);
+    let targetVersion = null;
+    if (convertMode === 'to121') {
+        targetVersion = '1.21.1';
+    } else if (convertMode === 'to120') {
+        targetVersion = '1.20.1';
+    }
+
+    const migratedData = fullMigrator.migrate(nbtData, targetVersion);
     const stats = fullMigrator.summarize();
 
     const outputData = NBTSerializer.serialize(migratedData.name, migratedData.root);
@@ -148,7 +177,8 @@ async function convertFile(file) {
     return {
         name: file.name,
         data: output,
-        stats
+        stats,
+        targetVersion: stats.targetVersion || 'unknown'
     };
 }
 
@@ -157,7 +187,8 @@ async function downloadAll() {
 
     const zip = new JSZip();
     for (const f of window.fixedFiles) {
-        zip.file(f.name.replace(/\.nbt$/, '_v1.1.nbt'), f.data);
+        const versionSuffix = f.targetVersion ? `_${f.targetVersion}` : '_converted';
+        zip.file(f.name.replace(/\.nbt$/, `${versionSuffix}.nbt`), f.data);
     }
 
     const blob = await zip.generateAsync({ type: 'blob' });
@@ -165,7 +196,7 @@ async function downloadAll() {
 
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'converted_blueprints_v1.1.zip';
+    a.download = 'converted_blueprints.zip';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

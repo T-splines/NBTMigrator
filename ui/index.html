@@ -3,15 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NBTrans v1.1 - NBT蓝图转换器</title>
-    <link rel="stylesheet" href="styles.css">
+    <title>NBTrans v1.2 - NBT蓝图双向转换器</title>
+    <link rel="stylesheet" href="../ui/styles.css">
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>🔄 NBTrans v1.1</h1>
-            <p class="subtitle">Minecraft Create Mod 蓝图转换器</p>
-            <p class="version-info">支持: 1.20.1 → 1.21.1 | 剪贴板 | 嵌套过滤器</p>
+            <h1>🔄 NBTrans v1.2</h1>
+            <p class="subtitle">Minecraft Create Mod 蓝图双向转换器</p>
+            <p class="version-info">支持: 1.20.1 ↔ 1.21.1 | 剪贴板 | 嵌套过滤器</p>
         </header>
 
         <main>
@@ -23,6 +23,27 @@
                     </div>
                 </div>
                 <div id="fileList" class="file-list">未选择文件</div>
+            </section>
+
+            <section class="options-section">
+                <h3>转换选项</h3>
+                <div class="option-group">
+                    <label class="radio-label">
+                        <input type="radio" name="convertMode" value="auto" checked>
+                        <span class="radio-text">🔄 自动检测（推荐）</span>
+                        <span class="radio-desc">自动识别文件版本并反向转换</span>
+                    </label>
+                    <label class="radio-label">
+                        <input type="radio" name="convertMode" value="to121">
+                        <span class="radio-text">⬆️ 转换到 1.21.1</span>
+                        <span class="radio-desc">将所有文件转换为 1.21.1 版本</span>
+                    </label>
+                    <label class="radio-label">
+                        <input type="radio" name="convertMode" value="to120">
+                        <span class="radio-text">⬇️ 转换到 1.20.1</span>
+                        <span class="radio-desc">将所有文件转换为 1.20.1 版本</span>
+                    </label>
+                </div>
             </section>
 
             <section class="action-section">
@@ -46,7 +67,12 @@
         </main>
 
         <footer>
-            <p>NBTrans v1.1 - 完整NBT解析重建 | 支持剪贴板和嵌套过滤器迁移</p>
+            <p>
+                ✨ 完全本地处理 | 批量转换 | 双向支持 | 
+                <a href="https://github.com/T-splines/NBTMigrator" target="_blank">GitHub</a> | 
+                <a href="https://space.bilibili.com/24787473" target="_blank">B站: 机械动力magic魔法之源</a>
+            </p>
+            <p class="copyright">NBTrans v1.2 - 完整NBT解析重建 | 支持剪贴板和嵌套过滤器双向迁移</p>
         </footer>
     </div>
 
@@ -55,6 +81,6 @@
     <script src="../utils/gzip.js"></script>
     <script src="../core/nbt-parser.js"></script>
     <script src="../migrators/full-migrator.js"></script>
-    <script src="app.js"></script>
+    <script src="../ui/app.js"></script>
 </body>
 </html>
