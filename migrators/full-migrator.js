@@ -57,8 +57,15 @@ class FullMigrator {
             return nbtData;
         }
 
-        const blocksField = root.value.blocks;
-        if (!blocksField || blocksField._type !== 'list') return nbtData;
+        const blocksField = root.value.blocks || root.value.Blocks || root.value.blockEntities;
+        if (!blocksField || blocksField._type !== 'list') {
+            if (this.sourceVersion === '1.20.1' && targetVersion === '1.21.1') {
+                this.migrateItemsTo121(root.value);
+            } else if (this.sourceVersion === '1.21.1' && targetVersion === '1.20.1') {
+                this.migrateItemsTo120(root.value);
+            }
+            return nbtData;
+        }
 
         const blocks = blocksField.value;
         this.stats.blocks = blocks.length;
@@ -77,11 +84,12 @@ class FullMigrator {
     migrateTo121(root, blocks) {
         for (const block of blocks) {
             if (block._type !== 'compound') continue;
-            const nbtField = block.value.nbt;
-            if (!nbtField || nbtField._type !== 'compound') continue;
+            const nbtField = block.value.nbt || block;
+            if (nbtField._type !== 'compound') continue;
 
             this.migrateClipboardTo121(nbtField.value);
-            this.migrateFilterTo121(nbtField.value);
+            this.migrateItemsTo121(nbtField.value);
+            this.migrateInteractionPointsTo121(nbtField.value);
         }
 
         root.value.DataVersion = { _type: 'int', value: 3955 };
@@ -90,11 +98,12 @@ class FullMigrator {
     migrateTo120(root, blocks) {
         for (const block of blocks) {
             if (block._type !== 'compound') continue;
-            const nbtField = block.value.nbt;
-            if (!nbtField || nbtField._type !== 'compound') continue;
+            const nbtField = block.value.nbt || block;
+            if (nbtField._type !== 'compound') continue;
 
             this.migrateClipboardTo120(nbtField.value);
-            this.migrateFilterTo120(nbtField.value);
+            this.migrateItemsTo120(nbtField.value);
+            this.migrateInteractionPointsTo120(nbtField.value);
         }
 
         root.value.DataVersion = { _type: 'int', value: 3465 };
@@ -268,13 +277,22 @@ class FullMigrator {
             if (!nbt[fieldName] || nbt[fieldName]._type !== 'compound') continue;
 
             const filterData = nbt[fieldName].value;
-            if (!filterData.id || !this.COMPLEX_FILTER_IDS.has(filterData.id.value)) continue;
+            if (!filterData.id || filterData.id._type !== 'string') continue;
 
-            const newFilter = this.buildFilterTo121(nbt[fieldName]);
+            const newFilter = this.COMPLEX_FILTER_IDS.has(filterData.id.value)
+                ? this.buildFilterTo121(nbt[fieldName])
+                : this.buildItemStackTo121(nbt[fieldName]);
             if (newFilter) {
                 nbt[fieldName] = newFilter;
                 migrated = true;
                 this.stats.filters++;
+            }
+        }
+
+        if (nbt.Filters && nbt.Filters._type === 'list') {
+            for (const filterEntry of nbt.Filters.value) {
+                if (filterEntry._type !== 'compound') continue;
+                if (this.migrateFilterTo121(filterEntry.value)) migrated = true;
             }
         }
 
@@ -288,9 +306,11 @@ class FullMigrator {
             if (!nbt[fieldName] || nbt[fieldName]._type !== 'compound') continue;
 
             const filterData = nbt[fieldName].value;
-            if (!filterData.id || !this.COMPLEX_FILTER_IDS.has(filterData.id.value)) continue;
+            if (!filterData.id || filterData.id._type !== 'string') continue;
 
-            const newFilter = this.buildFilterTo120(nbt[fieldName]);
+            const newFilter = this.COMPLEX_FILTER_IDS.has(filterData.id.value)
+                ? this.buildFilterTo120(nbt[fieldName])
+                : this.buildItemStackTo120(nbt[fieldName]);
             if (newFilter) {
                 nbt[fieldName] = newFilter;
                 migrated = true;
@@ -298,7 +318,161 @@ class FullMigrator {
             }
         }
 
+        if (nbt.Filters && nbt.Filters._type === 'list') {
+            for (const filterEntry of nbt.Filters.value) {
+                if (filterEntry._type !== 'compound') continue;
+                if (this.migrateFilterTo120(filterEntry.value)) migrated = true;
+            }
+        }
+
         return migrated;
+    }
+
+    migrateItemsTo121(nbt) {
+        this.migrateFilterTo121(nbt);
+        for (const field of Object.values(nbt)) {
+            if (!field) continue;
+            if (field._type === 'compound') {
+                if (field.value.id && field.value.id._type === 'string') {
+                    this.migrateItemStackTo121(field.value);
+                }
+                this.migrateItemsTo121(field.value);
+            } else if (field._type === 'list') {
+                for (const entry of field.value) {
+                    if (entry && entry._type === 'compound') {
+                        if (entry.value.id && entry.value.id._type === 'string') {
+                            this.migrateItemStackTo121(entry.value);
+                        }
+                        this.migrateItemsTo121(entry.value);
+                    }
+                }
+            }
+        }
+    }
+
+    migrateItemsTo120(nbt) {
+        this.migrateFilterTo120(nbt);
+        for (const field of Object.values(nbt)) {
+            if (!field) continue;
+            if (field._type === 'compound') {
+                if (field.value.id && field.value.id._type === 'string') {
+                    this.migrateItemStackTo120(field.value);
+                }
+                this.migrateItemsTo120(field.value);
+            } else if (field._type === 'list') {
+                for (const entry of field.value) {
+                    if (entry && entry._type === 'compound') {
+                        if (entry.value.id && entry.value.id._type === 'string') {
+                            this.migrateItemStackTo120(entry.value);
+                        }
+                        this.migrateItemsTo120(entry.value);
+                    }
+                }
+            }
+        }
+    }
+
+    migrateItemStackTo121(item) {
+        if (!this.isFilterItem(item)) return false;
+        if (!item.tag || item.tag._type !== 'compound') return false;
+        const converted = this.buildFilterTo121({ _type: 'compound', value: item });
+        for (const [key, value] of Object.entries(converted.value)) {
+            item[key] = value;
+        }
+        delete item.tag;
+        delete item.Count;
+        return true;
+    }
+
+    migrateItemStackTo120(item) {
+        if (!this.isFilterItem(item)) return false;
+        if (!item.components || item.components._type !== 'compound') return false;
+        const converted = this.buildFilterTo120({ _type: 'compound', value: item });
+        for (const [key, value] of Object.entries(converted.value)) {
+            item[key] = value;
+        }
+        delete item.components;
+        delete item.count;
+        return true;
+    }
+
+    migrateInteractionPointsTo121(nbt) {
+        const points = nbt.InteractionPoints;
+        if (!points || points._type !== 'list') return false;
+        let migrated = false;
+        for (const point of points.value) {
+            const pos = point && point._type === 'compound' ? point.value.Pos : null;
+            if (!pos || pos._type !== 'compound') continue;
+            const values = pos.value;
+            const x = values.X || values.x;
+            const y = values.Y || values.y;
+            const z = values.Z || values.z;
+            if (!x || !y || !z) continue;
+            point.value.Pos = {
+                _type: 'intArray',
+                value: [x.value, y.value, z.value]
+            };
+            migrated = true;
+        }
+        return migrated;
+    }
+
+    migrateInteractionPointsTo120(nbt) {
+        const points = nbt.InteractionPoints;
+        if (!points || points._type !== 'list') return false;
+        let migrated = false;
+        for (const point of points.value) {
+            const pos = point && point._type === 'compound' ? point.value.Pos : null;
+            if (!pos || pos._type !== 'intArray' || pos.value.length < 3) continue;
+            point.value.Pos = {
+                _type: 'compound',
+                value: {
+                    X: { _type: 'int', value: pos.value[0] },
+                    Y: { _type: 'int', value: pos.value[1] },
+                    Z: { _type: 'int', value: pos.value[2] }
+                }
+            };
+            migrated = true;
+        }
+        return migrated;
+    }
+
+    isFilterItem(item) {
+        if (!item.id || item.id._type !== 'string') return false;
+        if (this.COMPLEX_FILTER_IDS.has(item.id.value)) return true;
+        return Boolean(item.tag && item.tag._type === 'compound' &&
+            (item.tag.value.Items || item.tag.value.RespectNBT || item.tag.value.Blacklist ||
+             item.tag.value.MatchedAttributes || item.tag.value.Address));
+    }
+
+    buildItemStackTo121(itemField) {
+        const item = itemField.value;
+        const result = {
+            _type: 'compound',
+            value: {
+                id: item.id,
+                count: { _type: 'int', value: item.Count ? item.Count.value : 1 }
+            }
+        };
+        if (item.components && item.components._type === 'compound') {
+            result.value.components = item.components;
+        }
+        return result;
+    }
+
+    buildItemStackTo120(itemField) {
+        const item = itemField.value;
+        const result = {
+            _type: 'compound',
+            value: {
+                id: item.id,
+                Count: { _type: 'byte', value: item.count ? item.count.value : 1 }
+            }
+        };
+        if (item.tag && item.tag._type === 'compound') {
+            result.value.tag = item.tag;
+        }
+        return result;
     }
 
     buildFilterTo121(filterField) {
@@ -341,6 +515,12 @@ class FullMigrator {
                         value: filterItems
                     };
                 }
+            } else if (tag.Items && tag.Items._type === 'list') {
+                components['create:filter_items'] = {
+                    _type: 'list',
+                    elementType: 10,
+                    value: this.buildFilterItemsTo121(tag.Items.value)
+                };
             }
         } else {
             components['create:filter_items_respect_nbt'] = { _type: 'byte', value: 0 };
